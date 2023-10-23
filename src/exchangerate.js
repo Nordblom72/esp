@@ -25,7 +25,7 @@ function getCurrencyExchangeRate(date, base='EUR', symbol) {
         return({
         "date": `${date}`,
           "rates": {
-            "SEK":11.55
+            "SEK":11.64
           }
         });
       }

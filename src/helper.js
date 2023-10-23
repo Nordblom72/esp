@@ -1,5 +1,7 @@
 const { getCurrencyExchangeRate } = require('./exchangerate');
 
+const monthsAsTextList = ['January', 'February', 'Mars', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 
 const  addCustomCurrency = (srcObj, forceRoundUp=true) => {
   let promises =[];
@@ -80,4 +82,4 @@ function alwaysRoundUp (num, nrOfDecimals) {
   }
 }
 
-module.exports = { addCustomCurrency };
+module.exports = { monthsAsTextList, addCustomCurrency };

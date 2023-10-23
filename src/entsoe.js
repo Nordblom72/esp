@@ -24,7 +24,8 @@ function formatDate(date) {
 }
 
 const getEntsoeSpotPricesToday = () => {
-  const todayDate = new Date();
+  const utcDate = new Date();
+  const todayDate = convertFromUtcToLocalDate(utcDate);
   const todayDay = todayDate.getUTCDate();
   const year = todayDate.getUTCFullYear();
   const monthNr = todayDate.getUTCMonth();
@@ -38,7 +39,7 @@ const getEntsoeSpotPricesToday = () => {
   console.log("END:   ", periodEndDate)
   console.log( `${monthsAsTextList[monthNr]}, ${todayDay}, ${year}`);
 
-  return getEntsoeSpotPrices(formatDate(periodStartDate), formatDate(periodEndDate))
+  return getEntsoeSpotPrices(formatDate(periodStartDate), formatDate(periodEndDate, monthNr))
   .then(function(rspObj) {
     if (Object.keys(rspObj).length === 2) {
       delete rspObj['1']; // Don't care about tomorrow data
@@ -50,20 +51,20 @@ const getEntsoeSpotPricesToday = () => {
   });
 }
 
+const convertFromUtcToLocalDate = (utcDateObj) => {
+  const offset = utcDateObj.getTimezoneOffset();
+  return new Date(utcDateObj.getTime() - offset * 60000);
+}
 
 const getEntsoeSpotPricesMonth = (year, monthNr) => {
-  const todayDate = new Date();
-  const todayDay = todayDate.getUTCDate();
+  const utcDate = new Date();
+  const todayDate = convertFromUtcToLocalDate(utcDate);
   const currentYear = todayDate.getUTCFullYear();
   const numDaysInMonth = new Date(year, monthNr, 0).getDate();
   let periodStartDate = new Date(monthsAsTextList[monthNr] + ', 1, ' + year);
-  console.log("BEFORE: ", periodStartDate)
   periodStartDate = periodStartDate.toLocaleString("se-SE", {timeZone: "Europe/Stockholm"});
-  console.log("AFTER: ", periodStartDate)
   let periodEndDate = '';
 
-  console.log("todayDate = ", todayDate);
-  console.log("todayDay =", todayDay);
 
   if ( (year < currentYear) || (year === currentYear && monthNr < todayDate.getMonth()) ) {
     periodEndDate = new Date(`${monthsAsTextList[monthNr]}, ${numDaysInMonth}, ${year}`);
@@ -80,7 +81,7 @@ const getEntsoeSpotPricesMonth = (year, monthNr) => {
   console.log("START: ", periodStartDate)
   console.log("END:   ", periodEndDate)
   console.log( `${monthsAsTextList[monthNr]}, ${numDaysInMonth}, ${year}`);
-  return getEntsoeSpotPrices(formatDate(periodStartDate), formatDate(periodEndDate))
+  return getEntsoeSpotPrices(formatDate(periodStartDate), formatDate(periodEndDate), monthNr)
   .then(function(rspObj) {
     return rspObj})
   .catch((error) => {
@@ -88,9 +89,7 @@ const getEntsoeSpotPricesMonth = (year, monthNr) => {
   });
 }
 
-const getEntsoeSpotPrices = (startDate, endDate) => {
-  console.log("START DATE: ",startDate);
-  console.log("END DATE: ",endDate)
+const getEntsoeSpotPrices = (startDate, endDate, monthNr) => {
   const apiUrl =  ENTSOE_DEFAULTS.url + 
                   '?securityToken=' + ENTSOE_DEFAULTS.securitycToken + 
                   '&documentType=' + ENTSOE_DEFAULTS.docType + 
@@ -102,6 +101,7 @@ const getEntsoeSpotPrices = (startDate, endDate) => {
       "Content-Type": "text/xml",
       'User-Agent': '*'
   }
+  console.log(apiUrl)
   return fetch(apiUrl, {
       method: 'GET',
       headers: headers})
@@ -120,11 +120,11 @@ const getEntsoeSpotPrices = (startDate, endDate) => {
         var json_result = xml_to_js.xml2json(xml, {compact: true, spaces: 2});
         const jsonObj = JSON.parse(json_result);
         if (validateResponse(jsonObj)) {
-          const parsedObj = parseResponse(jsonObj);
+          const parsedObj = parseResponse(jsonObj, monthNr);
           return (parsedObj);
         }})
       .catch((error) => {
-        console.error('Error:', error);
+        console.log('Error:', error);
     });
 }
 
@@ -136,45 +136,76 @@ function validateResponse (jsonObj) {
   return (true);
 }
 
-const parseResponse = (jsonObj) => {
-  let rspObj = {};
+const parseResponse = (jsonObj, monthNr) => {
+  // Assumption: The request is for timeseries within same month.
+  // Thus, we only handle timeseries within the same month.
+  // Requests towards entsoe some hours after noon will also include day-ahead timeseries.
+  // We don't want day-ahead prices so we strip those.
+  let rspObj = [];
   let dayObj = {};
-  let hourIdx = 0;
-  let startDate = "";
-  let endDate = "";
-  let resolution = "";
-  let dayIdx = 0;
+  let startDate;
+  let date;
+  let finished = false;
+  if (!monthNr) {
+    monthNr = new Date().getUTCMonth();
+  }
+
   if (jsonObj.Publication_MarketDocument.TimeSeries.length > 1) { //It's an array
     console.log("It's an array of objects!!!");
     Object.values(jsonObj.Publication_MarketDocument.TimeSeries).forEach(val => {
-      startDate = val.Period.timeInterval.start._text;
-      endDate = val.Period.timeInterval.end._text;
-      resolution = val.Period.resolution._text;
-      dayObj.date=startDate;
-      dayObj.spotPrices = {};
+      date = getDateFromTimeInerval(val.Period.timeInterval.start._text, val.Period.timeInterval.end._text, monthNr);
+      if (!date) {
+        finished = true;
+      }
       
-      hourIdx = 0;
-      val.Period.Point.forEach((hour) => {
-        dayObj.spotPrices[hourIdx] = {eur: parseFloat(Object.values(hour)[1]._text, 10)};
-        hourIdx++;
-      });
-      rspObj[dayIdx] = Object.assign({}, dayObj);
-      dayIdx++;
+      if (!finished) {
+        dayObj.date=date;
+        dayObj.spotPrices = [];
+        val.Period.Point.forEach((hour) => {
+          dayObj.spotPrices.push({eur: parseFloat(Object.values(hour)[1]._text)}); // Array
+        });
+      
+        if ((new Date(dayObj.date).getUTCDate() <= new Date().getUTCDate()) || (new Date(dayObj.date).getUTCMonth() < new Date().getUTCMonth())) {
+          rspObj.push( Object.assign({}, dayObj));
+        } else {
+          console.log("it is tomorrow");
+        }
+      }
     });
-  } else { //It's a object
+  } else { //It's an object. Only one instance of timeSeries
     console.log("It's a single object!!!");
     startDate = jsonObj.Publication_MarketDocument.TimeSeries.Period.timeInterval.start._text;
-    endDate = jsonObj.Publication_MarketDocument.TimeSeries.Period.timeInterval.end._text;
-    resolution = jsonObj.Publication_MarketDocument.TimeSeries.Period.resolution._text;
-    dayObj.date=startDate;
-    dayObj.spotPrices = {};
-    jsonObj.Publication_MarketDocument.TimeSeries.Period.Point.forEach((hour) => {
-      dayObj.spotPrices[hourIdx] = {eur: Object.values(hour)[1]._text};
-      hourIdx++;
-    });
-    rspObj[dayIdx] = Object.assign({}, dayObj);
+    date = getDateFromTimeInerval(jsonObj.Publication_MarketDocument.TimeSeries.Period.timeInterval.start._text, 
+                                  jsonObj.Publication_MarketDocument.TimeSeries.Period.timeInterval.end._text,
+                                  monthNr);
+    if (date) {
+      dayObj.date=date;
+      dayObj.spotPrices = [];
+      jsonObj.Publication_MarketDocument.TimeSeries.Period.Point.forEach((hour) => {
+        dayObj.spotPrices.push({eur: parseFloat(Object.values(hour)[1]._text)}); // Array
+      });
+      if (new Date(dayObj.date).getUTCDate() <= new Date().getUTCDate()) {
+        rspObj.push(Object.assign({}, dayObj));
+      }
+    }
   }
   return (rspObj);
 }
+
+const getDateFromTimeInerval = (startDate, endDate, monthNr, date) =>{
+  startDateObj = new Date(startDate);
+  endDateObj = new Date(endDate); 
+  if ((startDateObj.getUTCMonth() < monthNr) && (endDateObj.getUTCMonth() === monthNr)) {
+    //console.log("First day of month");
+    return(endDate.split("T")[0]);
+  }  else if  ((startDateObj.getUTCMonth() === monthNr) && (endDateObj.getUTCMonth() > monthNr)) {
+    //console.log("First day of next month");
+    return(null);
+  } else {
+    // Start & End date have same month nr
+    return(endDate.split("T")[0]);
+  }
+}
+
 
 module.exports = { getEntsoeSpotPrices, getEntsoeSpotPricesMonth, getEntsoeSpotPricesToday };
