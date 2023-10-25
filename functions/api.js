@@ -4,7 +4,6 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const { ObjectId } = require('mongodb');
 
-//const { connectToDb, getDb } = require('../src/db');
 const { dbHandler } = require('../src/db');
 const entsoe = require('../src/entsoe');
 const helper = require('../src/helper');
@@ -15,43 +14,21 @@ const router = express.Router();
 app.use(bodyParser.json());
 app.use(cors());
 
-let tempDb={};
-
-/*let db2;
-connectToDb((err) => {
-  if (!err) {
-    console.log('CONNECTED TO DB2');
-    db2 = getDb();
-  }
-  else {
-    console.log(err);
-  }
-});*/
-
-
+// Test API for the server
 router.get('/', (req, res) => {
-  //res.send(`App is running ... `);
-  res.status(200).json(tempDb);
-  
-  //res.send(`App is running ... `);
-  //res.json(spotPricesDB);
+  res.status(200).json(`App is running ... `);
 });
 
-
-
-router.get('/prices', (req, res) => {
-  let months = []
+// Test API for MongoDB
+router.get('/mongodb', (req, res) => {
   let query = { year: 2023, monthName: "October" };
-
-  //console.log("DANNE    DB = ", db)
   dbHandler('', query)
   .then(function(value) {
-    console.log(value);
     res.status(201).json(value)
   });
-  
 })
 
+// Test API for MongoDB. Get by ID
 router.get('/prices/:id', (req, res) => {
   if (ObjectId.isValid(req.params.id)) {
     db.collection('monthlyPrices')
@@ -67,7 +44,7 @@ router.get('/prices/:id', (req, res) => {
     }
 })
 
-
+// ????
 router.post('/monthlyPrices', (req, res) => {
   const month = req.body
   db.collection('monthlyPrices')
@@ -80,6 +57,7 @@ router.post('/monthlyPrices', (req, res) => {
     })
 })
 
+// Test API for fetching monthly entsoe prices and calculating SEK prices
 router.get('/month', (req, res) => {
   // entsoe month numbering is 0-11
   // Date() month numbering is 1-12
@@ -111,12 +89,18 @@ router.get('/month', (req, res) => {
  //res.status(200).json(spotPricesDB);
 });
 
+
+// Test API for fetching latest (todays) entsoe prices, calculating SEK prices and updating own DB
 router.get('/latest', (req, res) => {
   
   res.status(200).json(getLatestDailyElSpotPrices());
 });
 
-const getLatestDailyElSpotPrices = () => {
+// Refactor....
+// 1st request should go to entsoe
+// 2nd request should go to exchangerate
+// and do the mongodb requests at the end
+const getLatestDailyElSpotPrices2 = () => {
   // ToDo: Error handling
   // entsoe month numbering is 0-11
   // Date() month numbering is 1-12
@@ -156,13 +140,78 @@ const getLatestDailyElSpotPrices = () => {
           })
         });
       }
+      else {
+        console.log("NIT")
+      }
     }); 
-  } else { // It's the first day of month. The document needs to be created...or use asert in above use case ?
+  } else { // It's the first day of month. The document needs to be created.
     // ToDo: Implement me 
+    console.log("MONTH DATA NOT IN DB")
   }
   console.log('DONE')
 }
 
+
+const getLatestDailyElSpotPrices = () => {
+  // ToDo: Error handling
+  // entsoe month numbering is 0-11
+  // Date() month numbering is 1-12
+
+  let spotPrices = {};
+  spotPrices.year = parseInt(new Date().getFullYear());
+  spotPrices.monthName = helper.monthsAsTextList[new Date().getMonth()];
+
+  // Get Todays ElSpot Prices from entsoe. Prices are in EUR
+  entsoe.getEntsoeSpotPricesToday()
+  .then(function(entsoeRsp) {
+    spotPrices.days = Object.assign(entsoeRsp);
+    // Get exchangerate and calculate local price
+    helper.addCustomCurrency(entsoeRsp, false)
+    .then( () => {
+      //dbRsp.days.push(entsoeRsp[0]);
+      // Get current month data from DB
+      let query = { year: spotPrices.year, monthName: spotPrices.monthName };
+      dbHandler('', query)
+      .then(function(dbRsp) {
+        if (dbRsp != null && dbRsp.monthName === spotPrices.monthName) {
+          // Check for any potential holes in the data series, i.e. missing days. Fix data series if needed
+
+          // Check that todays date isn't already present in the DB
+          query = { _id: dbRsp._id, days: {$elemMatch: {date:(new Date()).toISOString().split('T')[0]}} }
+          dbHandler('get', query)
+          .then ( (dbRspExists) => {
+            if (dbRspExists === null) {
+              // Store todays data in DB
+              let setQuery = {identifier: {_id: dbRsp._id}, data: { $push: { days: entsoeRsp[0] }}};
+              dbHandler('update', setQuery)
+              .then( (acknowledged) =>  {
+                if (!acknowledged) {
+                  console.log("Failed to update updated DB");
+                }
+              });
+            };
+          })
+        } else if (dbRsp === null) {
+          // Monthly data for current month is not created yet. Probaly becasue it is first of the month
+          console.log("Creating and populating current month");
+          entsoe.getEntsoeSpotPricesMonth(spotPrices.year, parseInt(new Date().getMonth()))
+          .then(function(entsoeRspMonth) {
+            spotPrices.days = Object.assign(entsoeRspMonth);
+            helper.addCustomCurrency(spotPrices.days, false)
+            .then( () => {
+              dbHandler('create', spotPrices)
+              .then( (acknowledged) => {
+                if (!acknowledged) {
+                  console.log("Failed to create month doc in DB");
+                }
+              })
+            });
+          });
+        };
+      });
+    });
+  });
+}
 
 
 app.use('/.netlify/functions/api', router);

@@ -1,8 +1,10 @@
 const EXCHANGERATE_DEFAULTS = {
   url: 'http://api.exchangeratesapi.io/v1/',
-  apiKey: 'a8e81400a67c8b049b620d6c22e639fa'
+  apiKey: `${process.env.EXCHANGERATEAPI_IO_API_KEY}`
 }
 
+// Day-ahead prices are based on 'todays' 12:00 exchange rate
+// 
 
 function getCurrencyExchangeRate(date, base='EUR', symbol) {
   date = date.split('T')[0];
@@ -22,10 +24,11 @@ function getCurrencyExchangeRate(date, base='EUR', symbol) {
         return res.json();
       } else {
         // ToDo: Remove this temporary fix ....
+        console.log("FAKING PRICES")
         return({
         "date": `${date}`,
           "rates": {
-            "SEK":11.64
+            "SEK":11.7129
           }
         });
       }

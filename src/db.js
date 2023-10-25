@@ -1,22 +1,25 @@
 const { MongoClient } = require('mongodb')
 
+const MONGODB_DEFAULTS = {
+  url: 'mongodb+srv://' + `${process.env.MONGODB_USER}` + ':' + `${process.env.MONGODB_PSWD}` + `${process.env.MONGODB_URI}`,
+  database: `${process.env.MONGODB_DATABASE}`
+}
 
-
-
-let uri = 'mongodb+srv://testuser-1:testuser-1@solardb.5cufevf.mongodb.net/?retryWrites=true&w=majority';
-
-const mongoClient = new MongoClient(uri);
+const mongoClient = new MongoClient(MONGODB_DEFAULTS.url);
 const clientPromise = mongoClient.connect();
 
 const dbHandler = async (opType, context) => {
     try {
-        const database = (await clientPromise).db('solardb');
+        const database = (await clientPromise).db(MONGODB_DEFAULTS.database);
         const collection = database.collection('monthlyPrices');
 
         if (opType === 'update') {
           const rsp = await collection.updateOne(context.identifier, context.data);
           return(rsp.acknowledged);
-        } else { //get}
+        } else if (opType === 'create') { 
+          const rsp = await collection.insertOne(context);
+          return(rsp.acknowledged);
+        }else { //get}
           const results = await collection.findOne(context);
           return (results)
         }

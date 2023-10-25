@@ -2,12 +2,13 @@ const xml_to_js = require('xml-js');//npm i xml-js
 
 const ENTSOE_DEFAULTS = {
   url: 'https://web-api.tp.entsoe.eu/api',
-  securitycToken: '3a95457c-4ded-4404-ba14-6bcb05e97b8b',
+  securitycToken: `${process.env.ENTSOE_API_KEY}`,
   docType: 'A44',
   inDomain: '10Y1001A1001A47J',
   outDoamin: '10Y1001A1001A47J'
 }
 
+// ToDo: move monthsAsTextList & formatDate to helper module
 const monthsAsTextList = ['January', 'February', 'Mars', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 function formatDate(date) {

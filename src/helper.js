@@ -3,14 +3,16 @@ const { getCurrencyExchangeRate } = require('./exchangerate');
 const monthsAsTextList = ['January', 'February', 'Mars', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 
-const  addCustomCurrency = (srcObj, forceRoundUp=true) => {
+const addCustomCurrency = (srcObj, forceRoundUp=false) => {
   let promises =[];
   Object.values(srcObj).forEach((dayObj) => {
     if (!dayObj.hasOwnProperty('exchangeRates')) {
       dayObj.exchangeRates = {};
     };
     if (!dayObj.exchangeRates.hasOwnProperty('SEK')) {
-      promises.push(getCurrencyExchangeRate(dayObj.date, 'EUR', 'SEK'));
+      let date = new Date(new Date().setDate(new Date(dayObj.date).getDate()-1)); // Day before
+      date = date.toISOString().split('T')[0];
+      promises.push(getCurrencyExchangeRate(date, 'EUR', 'SEK'));
     }
   });
 
@@ -19,19 +21,19 @@ const  addCustomCurrency = (srcObj, forceRoundUp=true) => {
       let idx = 0;
       Object.values(srcObj).forEach((dayObj) => {
         if (!dayObj.exchangeRates.hasOwnProperty('SEK') && promise[idx].hasOwnProperty("rates")) {
-          if (dayObj.date.split("T")[0] === promise[idx].date) {
-            dayObj.exchangeRates.SEK = promise[idx].rates.SEK;
-            updateCustomCurrencyDay(dayObj, "eur", "sek", forceRoundUp);
-            idx++;
-            return;
-          }
+          dayObj.exchangeRates.SEK = promise[idx].rates.SEK;
+          updateCustomCurrencyDay(dayObj, "eur", "sek", forceRoundUp);
+          idx++;
         }
       });
+      return true
     })
     .catch((error) => {
       console.log('Error:', error);
+      return false
     });
 }
+
 
 // Convert from baseCurrencyCode to customCurrencyCode
 // The base price is per 1MWh 
@@ -69,9 +71,8 @@ const updateCustomCurrencyDay = (dayObj, baseCurrencyCode, customCurrencyCode, f
   });
 }
 
+
 function alwaysRoundUp (num, nrOfDecimals) {
-  let multiplier = Math.pow(10, nrOfDecimals);
-  let rsp;
   if (Math.sign(num) === 1) {
     return (Math.ceil(num*100)/100);
   } else if (Math.sign(num) === -1) {
