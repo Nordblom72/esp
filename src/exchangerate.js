@@ -4,7 +4,6 @@ const EXCHANGERATE_DEFAULTS = {
 }
 
 // Day-ahead prices are based on 'todays' 12:00 exchange rate
-// 
 
 function getCurrencyExchangeRate(date, base='EUR', symbol) {
   date = date.split('T')[0];

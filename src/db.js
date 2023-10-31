@@ -19,9 +19,9 @@ const dbHandler = async (opType, context) => {
         } else if (opType === 'create') { 
           const rsp = await collection.insertOne(context);
           return(rsp.acknowledged);
-        }else { //get}
+        } else { //get}
           const results = await collection.findOne(context);
-          return (results)
+          return (results);
         }
     } catch (error) {
         console.log("Error fetching data from DB!");

@@ -1,4 +1,6 @@
 const { getCurrencyExchangeRate } = require('./exchangerate');
+const { dbHandler } = require('../src/db');
+const entsoe = require('../src/entsoe');
 
 const monthsAsTextList = ['January', 'February', 'Mars', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -39,6 +41,7 @@ const addCustomCurrency = (srcObj, forceRoundUp=false) => {
 // The base price is per 1MWh 
 // Divide by 1000 to get the price per kWh
 const updateCustomCurrencyDay = (dayObj, baseCurrencyCode, customCurrencyCode, forceRoundUp) => {
+  //console.log(dayObj)
   let exchRate;
   const numOfDecimals = 2;
   if (dayObj.hasOwnProperty('exchangeRates')) {
@@ -58,11 +61,8 @@ const updateCustomCurrencyDay = (dayObj, baseCurrencyCode, customCurrencyCode, f
       } else {
         priceSek = ((hourObj[`${baseCurrencyCode}`] * exchRate * 100)/1000);
       }
-      //console.log(priceSek);
       priceSek = priceSek.toFixed(numOfDecimals);
       hourObj[`${customCurrencyCode}`] = parseFloat(priceSek);
-      //hourObj['sek2'] = parseFloat(((hourObj[`${baseCurrencyCode}`] * exchRate * 100)/1000).toFixed(4));
-
     }
     else {
       // ToDo: Some error hadling
@@ -83,4 +83,92 @@ function alwaysRoundUp (num, nrOfDecimals) {
   }
 }
 
-module.exports = { monthsAsTextList, addCustomCurrency };
+const validateAndRepairMonthObject = (year, montName, highestDayNr) => {
+  console.log("a ", highestDayNr)
+  let promises = [];
+  // Get the month object from DB
+  let query = { year: year, monthName: montName };
+  dbHandler('', query)
+  .then((dbMonthObj) => {
+    // Check for any potential holes in the data series, i.e. missing days. Fix the data series order if needed
+     let sortedDays = Object.assign(sortDayObjectsInArray(dbMonthObj.days, highestDayNr));
+
+    // Check for 'holes' in the sorted array
+    const missingDays = getMissingDays(sortedDays, highestDayNr);
+    console.log("miss ", missingDays)
+    if (missingDays.length !== 0) { // > 0 means some days are missing. Go and get them from entsoe ...
+      for (let i = 0; i < missingDays.length; i++) {
+        date = new Date(year.toString() + '-' + (monthsAsTextList.indexOf(montName)+1).toString() + '-' + missingDays[i].toString());
+        promises.push(entsoe.getEntsoeSpotPricesDay(date));
+      };
+      Promise.all(promises)
+      .then(promise => {
+        for (let i = 0; i < promise.length; i++) {
+          let dayNr = (promise[i][0].date).split('-')[2];
+          sortedDays[dayNr-1] = (promise[i][0]);
+        }
+        addCustomCurrency(sortedDays, false)
+        .then( () => {
+          dbMonthObj.days = sortedDays;
+          dbHandler('update', { identifier: {_id: dbMonthObj._id}, data: { $set: { days: dbMonthObj.days }}});
+        })
+      })
+      .catch((error) => {
+        console.log('Error:', error);
+        return false
+      });
+    }
+  });
+  return true;
+}
+
+// This function returns an array of mising days.
+// The array must be sorted and padded before calling this function
+const getMissingDays = (daysArr) => {
+  //console.log(daysArr)
+  console.log("length: ", daysArr.length)
+
+  let missingDays = [];
+  for (let i = 0; i < daysArr.length; i++) {
+    if ( (typeof(daysArr[i]) === 'object' && !daysArr[i].hasOwnProperty('date')) || typeof(daysArr[i]) !== 'object'  ) {
+      missingDays.push(i+1);
+    }
+  }
+  return (missingDays);
+}
+
+// This functions checks that the dayObject's dates in the array are in ascending order.
+// It does not check for any day gaps in the array.
+// Returns true or false
+const areDayObjectsInArraySorted = (daysArr=[]) => {
+  let prevVal = 0;
+  for (let i = 0; i < daysArr.length; i++) { 
+    if (typeof(daysArr[i]) === 'object' && daysArr[i].hasOwnProperty('date')) {
+      dayNr = parseInt(daysArr[i].date.split('-')[2]);
+      if (dayNr > prevVal) {
+        prevVal = dayNr;
+      } else {
+        return (false);
+      }
+    }
+  };
+  return (true);
+}
+
+const sortDayObjectsInArray = (daysArr, highestDayNr) => {
+  let newArr = [];
+  daysArr.forEach((dayObj) => {
+    dayNr = parseInt(dayObj.date.split('-')[2]);
+    newArr[dayNr-1] = dayObj;
+  });
+  // Loop again and set empty objets in undefined places
+  for (let i = 0; i < highestDayNr; i++) {
+    if (typeof(newArr[i]) !== 'object') {
+      newArr[i] = {};
+    };
+  };
+  // Truncate array if highestDayNr is less than in daysArr
+  return (newArr.slice(0, highestDayNr));
+}
+
+module.exports = { monthsAsTextList, addCustomCurrency, areDayObjectsInArraySorted, sortDayObjectsInArray, validateAndRepairMonthObject };
