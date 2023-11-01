@@ -11,7 +11,7 @@ const clientPromise = mongoClient.connect();
 const dbHandler = async (opType, context) => {
     try {
         const database = (await clientPromise).db(MONGODB_DEFAULTS.database);
-        const collection = database.collection('monthlyPrices');
+        const collection = database.collection('elspot-prices');
 
         if (opType === 'update') {
           const rsp = await collection.updateOne(context.identifier, context.data);

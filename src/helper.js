@@ -12,7 +12,8 @@ const addCustomCurrency = (srcObj, forceRoundUp=false) => {
       dayObj.exchangeRates = {};
     };
     if (!dayObj.exchangeRates.hasOwnProperty('SEK')) {
-      let date = new Date(new Date().setDate(new Date(dayObj.date).getDate()-1)); // Day before
+      let date = new Date(dayObj.date);
+      date = new Date(date.setDate(date.getDate() - 1)); // Day before
       date = date.toISOString().split('T')[0];
       promises.push(getCurrencyExchangeRate(date, 'EUR', 'SEK'));
     }
@@ -84,40 +85,43 @@ function alwaysRoundUp (num, nrOfDecimals) {
 }
 
 const validateAndRepairMonthObject = (year, montName, highestDayNr) => {
-  console.log("a ", highestDayNr)
   let promises = [];
   // Get the month object from DB
   let query = { year: year, monthName: montName };
   dbHandler('', query)
   .then((dbMonthObj) => {
-    // Check for any potential holes in the data series, i.e. missing days. Fix the data series order if needed
-     let sortedDays = Object.assign(sortDayObjectsInArray(dbMonthObj.days, highestDayNr));
+    if (dbMonthObj !== null) {
+      // Check for any potential holes in the data series, i.e. missing days. Fix the data series order if needed
+      let sortedDays = Object.assign(sortDayObjectsInArray(dbMonthObj.days, highestDayNr));
 
-    // Check for 'holes' in the sorted array
-    const missingDays = getMissingDays(sortedDays, highestDayNr);
-    console.log("miss ", missingDays)
-    if (missingDays.length !== 0) { // > 0 means some days are missing. Go and get them from entsoe ...
-      for (let i = 0; i < missingDays.length; i++) {
-        date = new Date(year.toString() + '-' + (monthsAsTextList.indexOf(montName)+1).toString() + '-' + missingDays[i].toString());
-        promises.push(entsoe.getEntsoeSpotPricesDay(date));
-      };
-      Promise.all(promises)
-      .then(promise => {
-        for (let i = 0; i < promise.length; i++) {
-          let dayNr = (promise[i][0].date).split('-')[2];
-          sortedDays[dayNr-1] = (promise[i][0]);
-        }
-        addCustomCurrency(sortedDays, false)
-        .then( () => {
-          dbMonthObj.days = sortedDays;
-          dbHandler('update', { identifier: {_id: dbMonthObj._id}, data: { $set: { days: dbMonthObj.days }}});
+      // Check for 'holes' in the sorted array
+      const missingDays = getMissingDays(sortedDays, highestDayNr);
+      if (missingDays.length !== 0) { // > 0 means some days are missing. Go and get them from entsoe ...
+        for (let i = 0; i < missingDays.length; i++) {
+          date = new Date(year.toString() + '-' + (monthsAsTextList.indexOf(montName)+1).toString() + '-' + missingDays[i].toString());
+          promises.push(entsoe.getEntsoeSpotPricesDay(date));
+        };
+        Promise.all(promises)
+        .then(promise => {
+          for (let i = 0; i < promise.length; i++) {
+            let dayNr = (promise[i][0].date).split('-')[2];
+            sortedDays[dayNr-1] = (promise[i][0]);
+          }
+          addCustomCurrency(sortedDays, false)
+          .then( () => {
+            dbMonthObj.days = sortedDays;
+            dbHandler('update', { identifier: {_id: dbMonthObj._id}, data: { $set: { days: dbMonthObj.days }}});
+          })
         })
-      })
-      .catch((error) => {
-        console.log('Error:', error);
-        return false
-      });
+        .catch((error) => {
+          console.log('Error:', error);
+          return false
+        });
+      }
     }
+  })
+  .catch((error) => {
+    console.log('Error:', error);
   });
   return true;
 }
@@ -125,9 +129,6 @@ const validateAndRepairMonthObject = (year, montName, highestDayNr) => {
 // This function returns an array of mising days.
 // The array must be sorted and padded before calling this function
 const getMissingDays = (daysArr) => {
-  //console.log(daysArr)
-  console.log("length: ", daysArr.length)
-
   let missingDays = [];
   for (let i = 0; i < daysArr.length; i++) {
     if ( (typeof(daysArr[i]) === 'object' && !daysArr[i].hasOwnProperty('date')) || typeof(daysArr[i]) !== 'object'  ) {

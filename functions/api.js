@@ -44,57 +44,59 @@ router.get('/prices/:id', (req, res) => {
     }
 })
 
-// ????
-router.post('/monthlyPrices', (req, res) => {
-  const month = req.body
-  db.collection('monthlyPrices')
-    .insertOne(month)
-    .then(result => {
-      res.status(201).json(result)
-    })
-    .catch(err => {
-      res.status(500).json({err: 'Could not create a new document'})
-    })
-})
 
+
+// **********************************************************************
 // Test API for fetching monthly entsoe prices and calculating SEK prices
 router.get('/month', (req, res) => {
-  // entsoe month numbering is 0-11
-  // Date() month numbering is 1-12
-  let year;
-  let days;
-  let spotPricesDB = {};
-
-  if (req.query.year && req.query.month) {
+  if (req.query.year && req.query.month && ( req.query.month <= 12 && req.query.month > 0)) {
     year = parseInt(req.query.year);
-    month = parseInt(req.query.month) - 1;
-    // ToDo: Add range checks
+    month = parseInt(req.query.month) - 1; // monthNr 0-11
   } else {
     res.status(400).send("Bad request");
-    return
+    return;
   };
-  
-  spotPricesDB.year = year;
-  spotPricesDB.monthName = helper.monthsAsTextList[month];
-
-  entsoe.getEntsoeSpotPricesMonth(year, month)
-  .then(function(value) {
-    spotPricesDB.days = Object.assign(value);
-    helper.addCustomCurrency(spotPricesDB.days, false)
-    .then( () => {
-      res.status(200).json(spotPricesDB);
-      //console.log(JSON.stringify(spotPricesDB, null, 2))
-    })
-  });
- //res.status(200).json(spotPricesDB);
+  res.status(200).json(getAndPopulateOneMonthInDb(year, month)); // monthNr 0-11
 });
 
+const getAndPopulateOneMonthInDb = (year, monthNr) => { // monthNr 0-11
+  // entsoe month numbering is 0-11
+  // Date() month numbering is 1-12
+  let spotPrices = {};
+  spotPrices.year = year;
+  spotPrices.monthName = helper.monthsAsTextList[monthNr]; // monthNr  0-11
+  console.log(spotPrices)
+
+  // Go ahead only if there isn't alreay a record of the requested month in the DB
+  // Get current month data from DB
+  let query = { year: spotPrices.year, monthName: spotPrices.monthName };
+  dbHandler('', query)
+  .then(function(dbRsp) {
+    if (dbRsp === null) {
+      console.log("Creating and populating month: ", spotPrices.monthName);
+      entsoe.getEntsoeSpotPricesMonth(spotPrices.year, monthNr)
+      .then(function(entsoeRspMonth) {
+        spotPrices.days = Object.assign(entsoeRspMonth);
+        helper.addCustomCurrency(spotPrices.days, false)
+        .then( () => {
+          dbHandler('create', spotPrices)
+          .then( (acknowledged) => {
+            if (!acknowledged) {
+              console.log("Failed to create month doc in DB");
+            }
+          })
+        });
+      });
+    } else {
+      console.log("Month obj already exists")
+    }
+  });
+}
 
 // Test API for fetching latest (todays) entsoe prices, calculating SEK prices and updating own DB
 router.get('/latest', (req, res) => {
   res.status(200).json(getLatestDailyElSpotPrices());
 });
-
 
 const getLatestDailyElSpotPrices = () => {
   // ToDo: Error handling

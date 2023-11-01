@@ -23,13 +23,8 @@ function getCurrencyExchangeRate(date, base='EUR', symbol) {
         return res.json();
       } else {
         // ToDo: Remove this temporary fix ....
-        console.log("FAKING PRICES")
-        return({
-        "date": `${date}`,
-          "rates": {
-            "SEK":11.7129
-          }
-        });
+        console.log("RESPONSE: STATUS:", res.status)
+        console.log(res)
       }
     })
     .catch((error) => {
