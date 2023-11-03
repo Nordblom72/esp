@@ -10,11 +10,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@netlify/functions": "^2.3.0",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "mongodb": "^6.1.0",
     "netlify-cli": "^16.4.2",
+    "node-cron": "^3.0.2",
     "serverless-http": "^3.2.0",
     "xml-js": "^1.6.11"
   }

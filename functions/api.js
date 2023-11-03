@@ -3,6 +3,7 @@ const serverless = require('serverless-http');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const { ObjectId } = require('mongodb');
+const nodeCron = require("node-cron");
 
 const { dbHandler } = require('../src/db');
 const entsoe = require('../src/entsoe');
@@ -21,7 +22,8 @@ router.get('/', (req, res) => {
 
 // Test API for MongoDB
 router.get('/mongodb', (req, res) => {
-  let query = { year: 2023, monthName: "October" };
+  console.log("Fetching from mongo DB...")
+  let query = { year: 2023, monthName: "November" };
   dbHandler('', query)
   .then(function(value) {
     res.status(201).json(value)
@@ -56,7 +58,8 @@ router.get('/month', (req, res) => {
     res.status(400).send("Bad request");
     return;
   };
-  res.status(200).json(getAndPopulateOneMonthInDb(year, month)); // monthNr 0-11
+  //res.status(200).json(getAndPopulateOneMonthInDb(year, month)); // monthNr 0-11
+  res.status(200).json({OK:true})
 });
 
 const getAndPopulateOneMonthInDb = (year, monthNr) => { // monthNr 0-11
@@ -95,10 +98,12 @@ const getAndPopulateOneMonthInDb = (year, monthNr) => { // monthNr 0-11
 
 // Test API for fetching latest (todays) entsoe prices, calculating SEK prices and updating own DB
 router.get('/latest', (req, res) => {
-  res.status(200).json(getLatestDailyElSpotPrices());
+  res.status(200).json({msg:getLatestDailyElSpotPrices2()});
+  //res.status(200).json(helper.getLatestDailyElSpotPrices2());
+  //res.status(200).json({OK:true})
 });
 
-const getLatestDailyElSpotPrices = () => {
+const getLatestDailyElSpotPrices2 = () => {
   // ToDo: Error handling
   // entsoe month numbering is 0-11
   // Date() month numbering is 1-12
@@ -108,16 +113,17 @@ const getLatestDailyElSpotPrices = () => {
   spotPrices.monthName = helper.monthsAsTextList[new Date().getMonth()];
 
   // Check health of current month in DB. Mend if needed ...
+  console.log("Check health of current month in DB")
   let highestDayNr = parseInt(new Date().getDate()) - 1; // Yesterday
   if (!helper.validateAndRepairMonthObject(spotPrices.year, spotPrices.monthName, highestDayNr)) {
     console.log("Inconsistend data in ",spotPrices.monthName, spotPrices.year);
-    return
+    return ("Inconsistend data in ",spotPrices.monthName, spotPrices.year)
   }
   
   console.log("getting today")
   // Check that todays date isn't already present in the DB
   query = { year: spotPrices.year, days: {$elemMatch: {date:(new Date()).toISOString().split('T')[0]}}};
-  dbHandler('get', query)
+  return dbHandler('get', query)
   .then ( (dbRspExists) => {
     if (dbRspExists === null) {
       // Get Todays ElSpot Prices from entsoe. Prices are in EUR and per MWhr
@@ -140,7 +146,9 @@ const getLatestDailyElSpotPrices = () => {
               .then( (acknowledged) =>  {
                 if (!acknowledged) {
                   console.log("Failed to update updated DB");
+                  return "Failed to update updated DB"
                 }
+                return ("Succesfully updated DB with todays prices")
               });
             // Monthly data for current month is not created yet. Probaly because it is the first of the month or is missing ...
             } else if (dbRsp === null) {
@@ -155,7 +163,9 @@ const getLatestDailyElSpotPrices = () => {
                   .then( (acknowledged) => {
                     if (!acknowledged) {
                       console.log("Failed to create month doc in DB");
+                      return ("Failed to create month doc in DB")
                     }
+                    return ("Succesfully updated DB with mpnthly prices")
                   })
                 });
               });
@@ -163,11 +173,29 @@ const getLatestDailyElSpotPrices = () => {
           });
         });
       });
+    } else {
+      console.log("Document already exists")
+      return ("Document already exists")
     };
   })
 }
 
+//const job = nodeCron.schedule("*/1 * * * *", function jobYouNeedToExecute() {
+  // Do whatever you want in here. Send email, Make  database backup or download data.
+  /*console.log("Got hit by node-cron event");
+  console.log(new Date().toLocaleString());
 
-app.use('/.netlify/functions/api', router);
+  dbHandler('', { year: 2023, monthName: "November" })
+  .then(function(value) {
+    console.log(value)
+  });
+}); 
+*/
+
+//job.start();
+
+
+//app.use('/.netlify/functions/api', router);
+app.use('/', router);
 
 module.exports.handler = serverless(app);

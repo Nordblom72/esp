@@ -172,4 +172,84 @@ const sortDayObjectsInArray = (daysArr, highestDayNr) => {
   return (newArr.slice(0, highestDayNr));
 }
 
-module.exports = { monthsAsTextList, addCustomCurrency, areDayObjectsInArraySorted, sortDayObjectsInArray, validateAndRepairMonthObject };
+
+const getLatestDailyElSpotPrices = () => {
+  // ToDo: Error handling
+  // entsoe month numbering is 0-11
+  // Date() month numbering is 1-12
+
+  let spotPrices = {};
+  spotPrices.year = parseInt(new Date().getFullYear());
+  spotPrices.monthName = monthsAsTextList[new Date().getMonth()];
+
+  // Check health of current month in DB. Mend if needed ...
+  let highestDayNr = parseInt(new Date().getDate()) - 1; // Yesterday
+  if (!validateAndRepairMonthObject(spotPrices.year, spotPrices.monthName, highestDayNr)) {
+    console.log("Inconsistend data in ",spotPrices.monthName, spotPrices.year);
+    return ("Inconsistend data in DB")
+  }
+  
+  console.log("getting today: ", new Date())
+  // Check that todays date isn't already present in the DB
+  query = { year: spotPrices.year, days: {$elemMatch: {date:(new Date()).toISOString().split('T')[0]}}};
+  console.log(JSON.stringify(query, null, 2));
+  return dbHandler('get', query)
+  .then ( (dbRspExists) => {
+    console.log('dbRspExists: ',dbRspExists);
+    if (dbRspExists === null) {
+      // Get Todays ElSpot Prices from entsoe. Prices are in EUR and per MWhr
+      entsoe.getEntsoeSpotPricesToday()
+      .then(function(entsoeRsp) {
+        spotPrices.days = Object.assign(entsoeRsp);
+
+        // Get exchangerate and calculate local price: SEK per KWhr
+        helper.addCustomCurrency(entsoeRsp, false)
+        .then( () => {
+          // Get current month data from DB
+          let query = { year: spotPrices.year, monthName: spotPrices.monthName };
+          dbHandler('', query)
+          .then(function(dbRsp) {
+            if (dbRsp != null && dbRsp.monthName === spotPrices.monthName) {
+              dbRsp.days.push(entsoeRsp[0]);
+              // Store todays data in DB
+              let setQuery = {identifier: {_id: dbRsp._id}, data: { $push: { days: entsoeRsp[0] }}};
+              dbHandler('update', setQuery)
+              .then( (acknowledged) =>  {
+                if (!acknowledged) {
+                  console.log("Failed to update updated DB");
+                  return "Failed to update updated DB"
+                }
+                return ("Succesfully updated DB with todays prices")
+              });
+            // Monthly data for current month is not created yet. Probaly because it is the first of the month or is missing ...
+            } else if (dbRsp === null) {
+              console.log("Creating and populating current month");
+              // Incase the month does not exist in DB yet and it isn't first of month: Fetch spot prices for all days until today from entsoe
+              entsoe.getEntsoeSpotPricesMonth(spotPrices.year, parseInt(new Date().getMonth()))
+              .then(function(entsoeRspMonth) {
+                spotPrices.days = Object.assign(entsoeRspMonth);
+                helper.addCustomCurrency(spotPrices.days, false)
+                .then( () => {
+                  dbHandler('create', spotPrices)
+                  .then( (acknowledged) => {
+                    if (!acknowledged) {
+                      console.log("Failed to create month doc in DB");
+                      return ("Failed to create month doc in DB")
+                    }
+                    return ("Succesfully updated DB with monthly-object prices")
+                  })
+                });
+              });
+            };
+          });
+        });
+      });
+    } else {
+      console.log("Document already exists")
+      return ("Document already exists")
+    };
+  })
+}
+
+
+module.exports = { monthsAsTextList, addCustomCurrency, areDayObjectsInArraySorted, sortDayObjectsInArray, validateAndRepairMonthObject, getLatestDailyElSpotPrices };
