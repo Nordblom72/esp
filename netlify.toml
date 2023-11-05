@@ -7,4 +7,4 @@
   status=200
 
 [functions."scheduler"]
-  schedule = "*/5 * * * *"
+  schedule = "*/1 * * * *"

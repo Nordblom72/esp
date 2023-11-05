@@ -7,11 +7,11 @@ const EXCHANGERATE_DEFAULTS = {
 
 function getCurrencyExchangeRate(date, base='EUR', symbol) {
   date = date.split('T')[0];
-
   const apiUrl =  EXCHANGERATE_DEFAULTS.url + '/' + date +
                   '?access_key=' + EXCHANGERATE_DEFAULTS.apiKey +
                   '&base=' + base + 
                   '&symbols=' + symbol;
+  
   let headers = {
     "Content-Type": "text/json",
   }
@@ -20,11 +20,12 @@ function getCurrencyExchangeRate(date, base='EUR', symbol) {
     headers: headers})
     .then(res => {
       if (res.status === 200) {
+        // ToDo: Implement response validation
         return res.json();
       } else {
-        // ToDo: Remove this temporary fix ....
-        console.log("RESPONSE: STATUS:", res.status)
-        console.log(res)
+        // ToDo: Implement error handling
+        console.log("  getCurrencyExchangeRate(). Response status:", res.status);
+        console.log(res);
       }
     })
     .catch((error) => {
