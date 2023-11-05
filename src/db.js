@@ -17,7 +17,8 @@ const mongoClient = new MongoClient(MONGODB_DEFAULTS.url, {
 //{ maxIdleTimeMS : 270000, minPoolSize : 2, maxPoolSize : 4 }
 
 const dbHandler = async (opType, context) => {
-  console.log("inside dbHandler");
+  //console.log("inside dbHandler. opType: ", opType, JSON.stringify(context, null, 2) );
+  console.log("inside dbHandler. opType: ", opType);
   let rsp;
   try {
     const clientPromise = await mongoClient.connect({ maxIdleTimeMS : 270000, minPoolSize : 2, maxPoolSize : 4 });
@@ -26,8 +27,8 @@ const dbHandler = async (opType, context) => {
     //console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     const database = clientPromise.db(MONGODB_DEFAULTS.database);
-    const collection = database.collection('elspot-prices');
-    //const collection = database.collection('monthlyPrices');
+    //const collection = database.collection('elspot-prices');
+    const collection = database.collection('monthlyPrices');
     
     if (opType === 'update') {
       rsp = await collection.updateOne(context.identifier, context.data);

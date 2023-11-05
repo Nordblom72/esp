@@ -1,4 +1,5 @@
 const xml_to_js = require('xml-js');//npm i xml-js
+//const helper = require('../src/helper');
 
 const ENTSOE_DEFAULTS = {
   url: 'https://web-api.tp.entsoe.eu/api',
@@ -6,6 +7,10 @@ const ENTSOE_DEFAULTS = {
   docType: 'A44',
   inDomain: '10Y1001A1001A47J',
   outDoamin: '10Y1001A1001A47J'
+}
+
+const convertDateToUTC = (date) => { 
+  return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds());
 }
 
 // ToDo: move monthsAsTextList & formatDate to helper module
@@ -25,38 +30,40 @@ function formatDate(date) {
 }
 
 const getEntsoeSpotPricesToday = () => {
-  const utcTodayDate = new Date();
+  const utcTodayDate = convertDateToUTC(new Date());
   return getEntsoeSpotPricesDay(utcTodayDate);
 }
 
 const getEntsoeSpotPricesDay = (utcDateObj) => {
   // entsoe month numbering is 0-11
   // Date() month numbering is 1-12
-  const localDate = convertFromUtcToLocalDate(utcDateObj);
-  const day = localDate.getUTCDate();
-  const year = localDate.getUTCFullYear();
-  const monthNr = localDate.getUTCMonth();
+  const day = utcDateObj.getUTCDate();
+  const year = utcDateObj.getUTCFullYear();
+  const monthNr = utcDateObj.getUTCMonth();
 
   let periodStartDate = new Date(`${monthsAsTextList[monthNr]}, ${day}, ${year}`);
   let periodEndDate   = new Date(`${monthsAsTextList[monthNr]}, ${day}, ${year}`);
+  periodStartDate.setHours(0, 0, 0)
   periodEndDate.setHours(23, 0, 0);
 
-  periodStartDate = periodStartDate.toLocaleString("se-SE", {timeZone: "Europe/Stockholm"});
-  periodEndDate   = periodEndDate.toLocaleString("se-SE", {timeZone: "Europe/Stockholm"});
+  //periodStartDate = periodStartDate.toLocaleString("se-SE", {timeZone: "Europe/Stockholm"});
+  //periodEndDate   = periodEndDate.toLocaleString("se-SE", {timeZone: "Europe/Stockholm"});
 
-  console.log("DAY-START: ", periodStartDate);
-  console.log("DAY-END:   ", periodEndDate);
+  console.log("*DAY-START: ", periodStartDate);
+  console.log("*DAY-END:   ", periodEndDate);
   console.log( `${monthsAsTextList[monthNr]}, ${day}, ${year}`);
 
   return getEntsoeSpotPrices(formatDate(periodStartDate), formatDate(periodEndDate, monthNr))
   .then(function(rspObj) {
     if (Object.keys(rspObj).length === 2) {
       delete rspObj['1']; // Don't care about tomorrow data
+      console.log('getEntsoeSpotPricesDay(): deleted tomorrow')
     }
+    console.log("Returning from entsoe.getEntsoeSpotPricesDay() ")
     return (rspObj);
   })
   .catch((error) => {
-    console.error('Error:', error);
+    console.log('Error:', error);
   });
 }
 
@@ -65,30 +72,32 @@ const convertFromUtcToLocalDate = (utcDateObj) => {
   return new Date(utcDateObj.getTime() - offset * 60000);
 }
 
-const getEntsoeSpotPricesMonth = (year, monthNr) => {
+const getEntsoeSpotPricesMonth = (year, monthNr) => { // monthNr: 0-11
   // entsoe month numbering is 0-11
   // Date() month numbering is 1-12
-  const utcDate = new Date();
-  const todayDate = convertFromUtcToLocalDate(utcDate);
-  const currentYear = todayDate.getUTCFullYear();
-  const numDaysInMonth = new Date(year, monthNr + 1, 0).getDate();
-  console.log(numDaysInMonth)
-  let periodStartDate = new Date(monthsAsTextList[monthNr] + ', 1, ' + year);
-  periodStartDate = periodStartDate.toLocaleString("se-SE", {timeZone: "Europe/Stockholm"});
-  let periodEndDate = '';
+  const todayUtcDate = convertDateToUTC(new Date());
+  const currentYear = todayUtcDate.getUTCFullYear();
+  const numDaysInMonth = new Date(year, monthNr + 1, 0).getDate(); // Don't use UtcDate here
+  console.log('numDaysInMonth', numDaysInMonth)
 
-  if ( (year < currentYear) || (year === currentYear && monthNr < todayDate.getMonth()) ) {
+  // Define period START DATE
+  let periodStartDate = new Date(monthsAsTextList[monthNr] + ', 1, ' + year); // month, day, year
+  periodStartDate.setHours(0, 0, 0)
+
+  // Define period END DATE
+  let periodEndDate;
+  if ( (year < currentYear) || (year === currentYear && monthNr < todayUtcDate.getUTCMonth()) ) {
     periodEndDate = new Date(`${monthsAsTextList[monthNr]}, ${numDaysInMonth}, ${year}`);
     console.log("...It is in the past...");
-  } else if (year === currentYear && monthNr === todayDate.getMonth()) {
-    periodEndDate = new Date(`${monthsAsTextList[monthNr]}, ${todayDate.getDate()+1}, ${year}`);
-    console.log(`It is present date: requested month = ${monthNr},  todayMonth = ${todayDate.getMonth()}` )
+  } else if (year === currentYear && monthNr === todayUtcDate.getUTCMonth()) {
+    periodEndDate = new Date(`${monthsAsTextList[monthNr]}, ${todayUtcDate.getUTCDate()+1}, ${year}`); //todo: +1 ???
+    console.log(`It is present date: requested month = ${monthNr},  todayMonth = ${todayUtcDate.getUTCMonth()}` )
   } else {
     // ToDo: reject request... raise error ...
     console.log("...it's a future date...");
   }
-  periodEndDate = periodEndDate.toLocaleString("se-SE", {timeZone: "Europe/Stockholm"});
-  
+  periodEndDate.setHours(23, 0, 0);
+
   console.log("MONTH-START: ", periodStartDate);
   console.log("MONTH-END:   ", periodEndDate);
   console.log( `${monthsAsTextList[monthNr]}, ${numDaysInMonth}, ${year}`);
@@ -96,7 +105,7 @@ const getEntsoeSpotPricesMonth = (year, monthNr) => {
   .then(function(rspObj) {
     return rspObj})
   .catch((error) => {
-    console.error('Error:', error);
+    console.log('Error:', error);
   });
 }
 
@@ -112,6 +121,7 @@ const getEntsoeSpotPrices = (startDate, endDate, monthNr) => {
       "Content-Type": "text/xml",
       'User-Agent': '*'
   }
+  console.log("ENTSOE URI: ", apiUrl)
   return fetch(apiUrl, {
       method: 'GET',
       headers: headers})
@@ -127,8 +137,10 @@ const getEntsoeSpotPrices = (startDate, endDate, monthNr) => {
         })
       .then(function(xml) {
         //convert to workable json
+        //console.log("Parsing xml to JSON")
         var json_result = xml_to_js.xml2json(xml, {compact: true, spaces: 2});
         const jsonObj = JSON.parse(json_result);
+        //console.log("parsed from xml to json: ", jsonObj)
         if (validateResponse(jsonObj)) {
           const parsedObj = parseResponse(jsonObj, monthNr);
           return (parsedObj);

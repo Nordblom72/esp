@@ -50,6 +50,32 @@ router.get('/prices/:id', (req, res) => {
 
 // **********************************************************************
 // Test API for fetching monthly entsoe prices and calculating SEK prices
+router.get('/validate', (req, res) => {
+  let msg = "Data OK";
+  if (req.query.year && req.query.month && ( req.query.month <= 12 && req.query.month > 0)) {
+    year = parseInt(req.query.year);
+    month = parseInt(req.query.month) - 1; // monthNr 0-11
+    monthName = helper.monthsAsTextList[month];
+    // Check health of month data in DB. Mend if needed ...
+    let highestDayNr = parseInt(new Date().getDate()) - 1; // Yesterday
+    helper.validateAndRepairMonthObject(year, monthName, highestDayNr)
+    .then( (OK) => {
+      if (!OK) {
+        console.log("Inconsistend data in ",monthName, year);
+        msg = "Inconsistend data in DB";
+      } else {
+        console.log("DATA is OK")
+      }
+      res.status(200).json({msg:msg})
+    })
+  } else {
+    res.status(400).send("Bad request");
+  };
+});
+
+
+
+// Test API for fetching monthly entsoe prices and calculating SEK prices
 router.get('/month', (req, res) => {
   if (req.query.year && req.query.month && ( req.query.month <= 12 && req.query.month > 0)) {
     year = parseInt(req.query.year);
@@ -58,52 +84,63 @@ router.get('/month', (req, res) => {
     res.status(400).send("Bad request");
     return;
   };
-  //res.status(200).json(getAndPopulateOneMonthInDb(year, month)); // monthNr 0-11
-  res.status(200).json({OK:true})
+
+  resMsg = getAndPopulateOneMonthInDb(year, month)
+  .then( (msg) => {
+    res.status(200).json({msg:msg});
+  })
 });
 
-const getAndPopulateOneMonthInDb = (year, monthNr) => { // monthNr 0-11
+const getAndPopulateOneMonthInDb = async (year, monthNr) => { // monthNr 0-11
   // entsoe month numbering is 0-11
   // Date() month numbering is 1-12
   let spotPrices = {};
   spotPrices.year = year;
   spotPrices.monthName = helper.monthsAsTextList[monthNr]; // monthNr  0-11
-  console.log(spotPrices)
+  console.log('getAndPopulateOneMonthInDb(): ', spotPrices)
 
   // Go ahead only if there isn't alreay a record of the requested month in the DB
   // Get current month data from DB
   let query = { year: spotPrices.year, monthName: spotPrices.monthName };
-  dbHandler('', query)
-  .then(function(dbRsp) {
+  return dbHandler('', query)
+  .then( async (dbRsp) => {
     if (dbRsp === null) {
       console.log("Creating and populating month: ", spotPrices.monthName);
-      entsoe.getEntsoeSpotPricesMonth(spotPrices.year, monthNr)
-      .then(function(entsoeRspMonth) {
+      await entsoe.getEntsoeSpotPricesMonth(spotPrices.year, monthNr)
+      .then(async function(entsoeRspMonth) {
         spotPrices.days = Object.assign(entsoeRspMonth);
-        helper.addCustomCurrency(spotPrices.days, false)
-        .then( () => {
-          dbHandler('create', spotPrices)
+        await helper.addCustomCurrency(spotPrices.days, false)
+        .then( async () => {
+          await dbHandler('create', spotPrices)
           .then( (acknowledged) => {
             if (!acknowledged) {
-              console.log("Failed to create month doc in DB");
+              console.log("ERROR: FAILED to create a monthly doc in DB");
+              return ("FAILED to create a monthly doc in DB")
             }
+            console.log("DB updated with creation of a new month object.");
+            return ("DB updated with creation of a new month object.")
           })
         });
       });
     } else {
-      console.log("Month obj already exists")
+      console.log("Month obj already exists");
+      return("Month obj already exists");
     }
   });
 }
 
 // Test API for fetching latest (todays) entsoe prices, calculating SEK prices and updating own DB
 router.get('/latest', (req, res) => {
-  res.status(200).json({msg:getLatestDailyElSpotPrices2()});
+  resMsg = helper.getLatestDailyElSpotPrices()
+  .then( (msg) => {
+    res.status(200).json({msg:msg});
+  })
+  //res.status(200).json({msg:helper.getLatestDailyElSpotPrices()});
   //res.status(200).json(helper.getLatestDailyElSpotPrices2());
   //res.status(200).json({OK:true})
 });
 
-const getLatestDailyElSpotPrices2 = () => {
+const getLatestDailyElSpotPrices22 = () => {
   // ToDo: Error handling
   // entsoe month numbering is 0-11
   // Date() month numbering is 1-12
@@ -179,20 +216,6 @@ const getLatestDailyElSpotPrices2 = () => {
     };
   })
 }
-
-//const job = nodeCron.schedule("*/1 * * * *", function jobYouNeedToExecute() {
-  // Do whatever you want in here. Send email, Make  database backup or download data.
-  /*console.log("Got hit by node-cron event");
-  console.log(new Date().toLocaleString());
-
-  dbHandler('', { year: 2023, monthName: "November" })
-  .then(function(value) {
-    console.log(value)
-  });
-}); 
-*/
-
-//job.start();
 
 
 //app.use('/.netlify/functions/api', router);
