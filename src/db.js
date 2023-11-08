@@ -23,8 +23,8 @@ const dbHandler = async (opType, context) => {
     //console.log("    dbHandler(), Pinged your deployment. You successfully connected to MongoDB!");
 
     const database = clientPromise.db(MONGODB_DEFAULTS.database);
-    //const collection = database.collection('elspot-prices');
-    const collection = database.collection('monthlyPrices');
+    const collection = database.collection('elspot-prices');
+    //const collection = database.collection('monthlyPrices');
     
     if (opType === 'update') {
       rsp = await collection.updateOne(context.identifier, context.data);
